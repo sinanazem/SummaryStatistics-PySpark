@@ -101,5 +101,5 @@ class SummaryStatistics:
 if __name__ == "__main__":
     obj = SummaryStatistics(spark,'src/data/marketing_campaign.csv')
     df = obj.get_summary_statistics()
-    df.toPandas().to_csv('summary_statistics.csv')
+    df.coalesce(1).write().mode('overwrite').options('header','true').csv('summary_statistics.csv')
     print('Done!')
