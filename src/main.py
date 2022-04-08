@@ -20,17 +20,21 @@ class SummaryStatistics:
         self.file_path = file_path
 
 
-    def read_data(self):
+        self.data = self.read_data()
+
+
+    def read_data(self,sep=','):
 
         try:
 
-            data = self.spark.read.csv(self.file_path,inferSchema=True,header=True,encoding='utf-8',sep='\t')
+            data = self.spark.read.csv(self.file_path,inferSchema=True,header=True,encoding='utf-8',sep=sep)
             return data
 
         except Exception as e:
 
             print('reading data failed!')
             print(e)
+
 
     @staticmethod
     def TransposeDF(df, columns, pivotCol):
@@ -49,13 +53,26 @@ class SummaryStatistics:
             print('TransposeDF failed!')
             print(e)
 
+    def summary_statistic_1(self):
+
+        dataframe = self.data.summary()
+
+
+        dataframe = self.TransposeDF(dataframe, dataframe.columns, "Summary")
+        dataframe = dataframe.withColumnRenamed("Summary", "Features")
+        return dataframe
+
+
+
 
     def calculate_summary_statistics(self,data):
 
         dataframe = data.summary()
+        print(type(dataframe))
 
         dataframe = self.TransposeDF(dataframe, dataframe.columns, "Summary")
         dataframe = dataframe.withColumnRenamed("Summary", "Features")
+
 
 
         num_unique_spark_df = data.agg(*(countDistinct(col(c)).alias(c) for c in data.columns))
@@ -64,21 +81,17 @@ class SummaryStatistics:
         dataframe = dataframe.join(num_unique_spark_df,on='Features',how='left')
 
 
-        type_list = [str(data.schema[i].dataType) for i in data.columns]
-        type_spark_df = self.spark.createDataFrame([(l,) for l in type_list], ['Type'])
 
-        dataframe = dataframe.withColumn("row_idx", row_number().over(Window.orderBy(monotonically_increasing_id())))
-        type_spark_df = type_spark_df.withColumn("row_idx", row_number().over(Window.orderBy(monotonically_increasing_id())))
-
-        dataframe = dataframe.join(type_spark_df, dataframe.row_idx == type_spark_df.row_idx).drop("row_idx")
+        dtype_spark_df = self.spark.createDataFrame(data.dtypes).withColumnRenamed("_1", "Features").withColumnRenamed("_2", "dtypes")
+        dataframe = dataframe.join(dtype_spark_df,on='Features',how='left')
 
 
 
 
         isna_sum_spark_df = data.select([count(when(isnan(c) | col(c).isNull(), c)).alias(c) for c in data.columns])
 
-        isna_sum_spark_df = self.TransposeDF(isna_sum_spark_df, isna_sum_spark_df.columns, "ID")
-        isna_sum_spark_df = isna_sum_spark_df.withColumnRenamed("ID", "Features").withColumnRenamed("0", "num_nan")
+        isna_sum_spark_df = self.TransposeDF(isna_sum_spark_df, isna_sum_spark_df.columns, isna_sum_spark_df.columns[0])
+        isna_sum_spark_df = isna_sum_spark_df.withColumnRenamed(isna_sum_spark_df.columns[0], "Features").withColumnRenamed("0", "num_nan")
 
         dataframe = dataframe.join(isna_sum_spark_df,on='Features',how='left')
 
@@ -96,10 +109,11 @@ class SummaryStatistics:
         return result
 
 
+if __name__ == '__main__':
 
-
-if __name__ == "__main__":
-    obj = SummaryStatistics(spark,'src/data/marketing_campaign.csv')
+    obj = SummaryStatistics(spark,'src/data/kc_house_data.csv')
     df = obj.get_summary_statistics()
     df.coalesce(1).write.mode('overwrite').option('header','true').csv('summary_statistics.csv')
     print('Done!')
+
+
